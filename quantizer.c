@@ -13,6 +13,8 @@
                                 // This assumes IEEE 754 single precision floats, as does some of the processing code.
 #define FLOAT_SIGN_MASK 0x80000000   // Used to extract the sign, because apparently math.h doesn't have a signum function (what's the deal
                                      // with that anyway?) and I'm already assuming the IEEE 754 standard.
+#define Q_FACTOR_LOWER 1.0f
+#define Q_FACTOR_UPPER 0x1.0p24f
 
 typedef struct {
     // Ports:
@@ -58,12 +60,13 @@ void runQuantizer(LADSPA_Handle instance, unsigned long sampleCount)
 {
     Quantizer *q_instance = (Quantizer *) instance;
 
-    // Get the input and output ports.  The convention is all plugins I've read seems to be to assign these to local variables, instead of 
+    // Get the input and output ports.  The convention in all plugins I've read seems to be to assign these to local variables, instead of 
     // accessing the instance struct members each time.
     LADSPA_Data *input = q_instance->inputPort, output = q_instance->outputPort;
 
     // Calculate the step size from the input value.
-    float stepSize = q_instance->quantizationFactor * FLOAT_STEP;
+    float stepSize = (q_instance->quantizationFactor >= Q_FACTOR_LOWER && q_instance->quantizationFactor <= Q_FACTOR_UPPER)
+                     ? q_instance->quantizationFactor * FLOAT_STEP : Q_FACTOR_LOWER;
     
     // Calculation intermediate storage.
     int exponentContainer;
@@ -102,7 +105,8 @@ void runAddingQuantizer(LADSPA_Handle instance, unsigned long sampleCount)
     LADSPA_Data runAddingGain = q_instance->runAddingGain;
 
     // Calculate the step size from the input value.
-    float stepSize = q_instance->quantizationFactor * FLOAT_STEP;
+    float stepSize = (q_instance->quantizationFactor >= Q_FACTOR_LOWER && q_instance->quantizationFactor <= Q_FACTOR_UPPER)
+                     ? q_instance->quantizationFactor * FLOAT_STEP : Q_FACTOR_LOWER;
     
     // Calculation intermediate storage.
     int exponentContainer;
