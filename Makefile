@@ -3,7 +3,7 @@
 # I followed this tutorial: http://mrbook.org/tutorials/make/
 
 CC=gcc
-CFLAGS=-c -Wall -fPIC -DPIC -O2 -std=c99 # -fPIC and -DPIC are required, because a LADSPA plugin is a shared library and must be relocatable.
+CFLAGS=-c -Wall -fPIC -DPIC -O2 -std=c99 # -fPIC and -DPIC are required because a LADSPA plugin is a shared library and must be relocatable.
 LD=ld
 LDFLAGS=-shared
 INSTALL=/usr/lib/ladspa/
