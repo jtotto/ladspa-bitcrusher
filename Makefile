@@ -3,7 +3,7 @@
 # I followed this tutorial: http://mrbook.org/tutorials/make/
 
 CC=gcc
-CFLAGS=-c -Wall -fPIC -DPIC -O2 # -fPIC and -DPIC are required, because a LADSPA plugin is a shared library and therefore must be relocatable.
+CFLAGS=-c -Wall -fPIC -DPIC -O2 -std=c99 # -fPIC and -DPIC are required, because a LADSPA plugin is a shared library and must be relocatable.
 LD=ld
 LDFLAGS=-shared
 INSTALL=/usr/lib/ladspa/
@@ -20,4 +20,4 @@ cleanup:
 	rm quantizer.o
 
 install: quantizer
-	cp quantizer1337.so $(INSTALL)
+	mv quantizer1337.so $(INSTALL)

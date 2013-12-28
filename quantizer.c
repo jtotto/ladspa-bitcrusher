@@ -11,10 +11,21 @@
 
 #define FLOAT_STEP 0x0.00001p0f // 2^-24, the step size of the single precision sample significands. (LADSPA_Data is just float in ladspa.h)
                                 // This assumes IEEE 754 single precision floats, as does some of the processing code.
-#define FLOAT_SIGN_MASK 0x80000000   // Used to extract the sign, because apparently math.h doesn't have a signum function (what's the deal
-                                     // with that anyway?) and I'm already assuming the IEEE 754 standard.
 #define Q_FACTOR_LOWER 1.0f
 #define Q_FACTOR_UPPER 0x1.0p24f
+
+#define strdup homebrew_strdup // I discovered after writing that strdup isn't actually in the standard, and rolling my own seemed like a fun
+                               // exercise.
+
+char *homebrew_strdup(const char *in)
+{
+    char *duplicate = malloc((strlen(in) + 1) * sizeof(char));
+    if(duplicate)
+    {
+        strcpy(duplicate, in);
+    }
+    return duplicate;
+}
 
 typedef struct {
     // Ports:
@@ -35,7 +46,7 @@ LADSPA_Handle instantiateQuantizer(const LADSPA_Descriptor *Descriptor, unsigned
 // This is a trivial port connection function.
 void connectPortToQuantizer(LADSPA_Handle instance, unsigned long port, LADSPA_Data *DataLocation)
 {
-    Quantizer q_instance = (Quantizer *) instance;
+    Quantizer *q_instance = (Quantizer *) instance;
 
     switch(port)
     {
@@ -51,6 +62,13 @@ void connectPortToQuantizer(LADSPA_Handle instance, unsigned long port, LADSPA_D
     }
 }
 
+// Surprisingly, math.h doesn't define a signum function.  I had planned to use bitwise operations assuming the IEEE754 standard,
+// but discovered that this is fundamentally disallowed by the language.
+float signum(float in)
+{
+    return in > 0.0f ? 1.0f : (in < 0.0f ? -1.0f : 0.0f); // I should probably use the ternary operator less.  
+}
+
 // Macros are used to allow the same code to be used for both run and run_adding.  
 // This approach is also employed by the decimator plugin by Steve Harris (plugin.org.uk).
 #undef buffer_write
@@ -62,22 +80,21 @@ void runQuantizer(LADSPA_Handle instance, unsigned long sampleCount)
 
     // Get the input and output ports.  The convention in all plugins I've read seems to be to assign these to local variables, instead of 
     // accessing the instance struct members each time.
-    LADSPA_Data *input = q_instance->inputPort, output = q_instance->outputPort;
+    LADSPA_Data *input = q_instance->inputPort, *output = q_instance->outputPort;
 
     // Calculate the step size from the input value.
-    float stepSize = (q_instance->quantizationFactor >= Q_FACTOR_LOWER && q_instance->quantizationFactor <= Q_FACTOR_UPPER)
-                     ? q_instance->quantizationFactor * FLOAT_STEP : Q_FACTOR_LOWER;
+    float stepSize = (*(q_instance->quantizationFactor) >= Q_FACTOR_LOWER && *(q_instance->quantizationFactor) <= Q_FACTOR_UPPER)
+                     ? *(q_instance->quantizationFactor) * FLOAT_STEP : Q_FACTOR_LOWER;
     
     // Calculation intermediate storage.
     int exponentContainer;
     float significand;
-    const unsigned long SIGN_MASK = FLOAT_SIGN_MASK;
 
     // Performing the processing.
     for(int i = 0; i < sampleCount; i++)
     {
         significand = frexpf(input[i], &exponentContainer); // Extract the significand of the sample for quantization.
-        significand = (significand & SIGN_MASK) | (floorf(fabs(significand)/stepSize + 0.5f) * stepSize; // Apply the quantization! 
+        significand = signum(significand) * floorf(fabs(significand)/stepSize + 0.5f) * stepSize; // Apply the quantization! 
         buffer_write(output[i], ldexpf(significand, exponentContainer)); // Reapply the exponent and write the quantized value.
     }
 }
@@ -99,25 +116,24 @@ void runAddingQuantizer(LADSPA_Handle instance, unsigned long sampleCount)
 
     // Get the input and output ports.  The convention in all of the plugins I've read has been to assign these to local variables, instead of 
     // accessing the instance struct members each time.
-    LADSPA_Data *input = q_instance->inputPort, output = q_instance->outputPort;
+    LADSPA_Data *input = q_instance->inputPort, *output = q_instance->outputPort;
 
     // Get the gain for run_adding.  This is used by the macro!
     LADSPA_Data runAddingGain = q_instance->runAddingGain;
 
     // Calculate the step size from the input value.
-    float stepSize = (q_instance->quantizationFactor >= Q_FACTOR_LOWER && q_instance->quantizationFactor <= Q_FACTOR_UPPER)
-                     ? q_instance->quantizationFactor * FLOAT_STEP : Q_FACTOR_LOWER;
+    float stepSize = (*(q_instance->quantizationFactor) >= Q_FACTOR_LOWER && *(q_instance->quantizationFactor) <= Q_FACTOR_UPPER)
+                     ? *(q_instance->quantizationFactor) * FLOAT_STEP : Q_FACTOR_LOWER;
     
     // Calculation intermediate storage.
     int exponentContainer;
     float significand;
-    const unsigned long SIGN_MASK = FLOAT_SIGN_MASK;
 
     // Performing the processing.
     for(int i = 0; i < sampleCount; i++)
     {
         significand = frexpf(input[i], &exponentContainer); // Extract the significand of the sample for quantization.
-        significand = (significand & SIGN_MASK) | (floor(fabs(significand)/stepSize + 0.5f) * stepSize; // Apply the quantization! 
+        significand = signum(significand) * floorf(fabs(significand)/stepSize + 0.5f) * stepSize; // Apply the quantization! 
         buffer_write(output[i], ldexpf(significand, exponentContainer)); // Reapply the exponent and write the quantized value.
     }
 }
@@ -163,18 +179,18 @@ void _init()
         portNames[Q_FACTOR] = strdup("Quantization Factor");
         portNames[Q_INPUT] = strdup("Input");
         portNames[Q_OUTPUT] = strdup("Output");
-        g_qDescriptor->PortNames = portNames;
+        g_qDescriptor->PortNames = (const char **)portNames;
 
         portRangeHints = malloc(g_qDescriptor->PortCount * sizeof(LADSPA_PortRangeHint));
         portRangeHints[Q_FACTOR].HintDescriptor = LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE | LADSPA_HINT_DEFAULT_LOW
                                                                             | LADSPA_HINT_LOGARITHMIC;
-        portRangeHints[Q_FACTOR].LowerBound = 1.0f
+        portRangeHints[Q_FACTOR].LowerBound = 1.0f;
         portRangeHints[Q_FACTOR].UpperBound = 0x1.0p24f;
         portRangeHints[Q_INPUT].HintDescriptor = 0;
         portRangeHints[Q_OUTPUT].HintDescriptor = 0;
         g_qDescriptor->PortRangeHints = portRangeHints;
         g_qDescriptor->instantiate = instantiateQuantizer;
-        g_qDescriptor->connectPort = connectPortToQuantizer;
+        g_qDescriptor->connect_port = connectPortToQuantizer;
         g_qDescriptor->activate = NULL;
         g_qDescriptor->run = runQuantizer;
         g_qDescriptor->run_adding = runAddingQuantizer;
