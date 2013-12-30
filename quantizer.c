@@ -12,7 +12,7 @@
 #define FLOAT_STEP 0x0.00001p0f // 2^-24, the step size of the single precision sample significands. (LADSPA_Data is just float in ladspa.h)
                                 // This assumes IEEE 754 single precision floats, as does some of the processing code.
 #define Q_FACTOR_LOWER 1.0f
-#define Q_FACTOR_UPPER 0x1.0p24f
+#define Q_FACTOR_UPPER 0x1.0p21f // Any values higher than this silence the input signal (at least for practical purposes).
 
 #define strdup homebrew_strdup // I discovered after writing that strdup isn't actually in the standard, and rolling my own seemed like a fun
                                // exercise.
@@ -184,8 +184,8 @@ void _init()
         portRangeHints = malloc(g_qDescriptor->PortCount * sizeof(LADSPA_PortRangeHint));
         portRangeHints[Q_FACTOR].HintDescriptor = LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE | LADSPA_HINT_DEFAULT_LOW
                                                                             | LADSPA_HINT_LOGARITHMIC;
-        portRangeHints[Q_FACTOR].LowerBound = 1.0f;
-        portRangeHints[Q_FACTOR].UpperBound = 0x1.0p24f;
+        portRangeHints[Q_FACTOR].LowerBound = Q_FACTOR_LOWER;
+        portRangeHints[Q_FACTOR].UpperBound = Q_FACTOR_UPPER;
         portRangeHints[Q_INPUT].HintDescriptor = 0;
         portRangeHints[Q_OUTPUT].HintDescriptor = 0;
         g_qDescriptor->PortRangeHints = portRangeHints;
