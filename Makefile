@@ -19,5 +19,6 @@ quantizer.o: quantizer.c
 cleanup:
 	rm quantizer.o
 
-install: quantizer
-	mv quantizer1337.so $(INSTALL)
+install: all
+	mv quantizer_1337.so $(INSTALL)
+	rm quantizer.o
