@@ -7,6 +7,7 @@ a conflict.
 -------
 
 This is a very, VERY basic implementation of quantization distortion as a LADSPA plugin.
+I intend also to implement decimation.
 When writing it I referred heavily to the example plugins provided by the LADSPA SDK, 
 as well as to some of the excellent plugins from http://plugin.org.uk/.  
 
