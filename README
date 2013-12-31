@@ -1,4 +1,4 @@
-NOTE:  I have NOT requested the uuid the plugin is currently using from the central uuid
+NOTE:  I have NOT requested the uuids the plugins are currently using from the central uuid
 -issuing authority.  I wrote this as a learning experience and don't want to clutter up
 the I.D. space.  If you're using it, just use the tools provided by the LADSPA SDK to 
 make sure that you don't have whichever plugin has the same id installed, or you'll have
@@ -7,7 +7,7 @@ a conflict.
 -------
 
 This is a very, VERY basic implementation of quantization distortion as a LADSPA plugin.
-I intend also to implement decimation.
+It now also features a downsampler!  This is the other traditional capability of a bitcrusher.
 When writing it I referred heavily to the example plugins provided by the LADSPA SDK, 
 as well as to some of the excellent plugins from http://plugin.org.uk/.  
 

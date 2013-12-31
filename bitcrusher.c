@@ -20,13 +20,9 @@
 #include <string.h>
 
 // Defining the plugin port numbers.  Both plugins are mono, and have one control each.
-#define Q_FACTOR 0
-#define Q_INPUT  1
-#define Q_OUTPUT 2
-
-#define D_FACTOR 0
-#define D_INPUT  1
-#define D_OUTPUT 2
+#define C_FACTOR 0
+#define C_INPUT  1
+#define C_OUTPUT 2
 
 #define FLOAT_STEP 0x0.00001p0f // 2^-24, the step size of the single precision sample significands. (LADSPA_Data is just float in ladspa.h)
                                 // This assumes IEEE 754 single precision floats, as does some of the processing code.
@@ -34,7 +30,7 @@
 #define Q_FACTOR_UPPER 0x1.0p21f // Any values higher than this silence the input signal (at least for practical purposes).
 
 #define D_FACTOR_LOWER 1.0f
-#define D_FACTOR_UPPER 500.0f // 
+#define D_FACTOR_UPPER 300.0f // 
 
 #define strdup homebrew_strdup // I discovered after writing that strdup isn't actually in the standard, and rolling my own seemed like a fun
                                // exercise.
@@ -49,43 +45,53 @@ char *homebrew_strdup(const char *in)
     return duplicate;
 }
 
-// The quantizer plugin:
+// Both plugins have the exact same internal data, so a lot of plugin infrastructure can be shared between the two plugins in the library!
+// The difference between the two lies in the meaning of the reductionFactor member.
 
 typedef struct {
     // Ports:
-    LADSPA_Data *quantizationFactor;
+    LADSPA_Data *reductionFactor;
     LADSPA_Data *inputPort;
     LADSPA_Data *outputPort;
 
     // Run_Adding gain:
     LADSPA_Data runAddingGain;
-} Quantizer;
+} Crusher;
 
+typedef Crusher Quantizer;
+typedef Crusher Downsampler;
 
 // There's really no preparation required.  Note that the activate/deactivate functions are pointless here and have been omitted.
-LADSPA_Handle instantiateQuantizer(const LADSPA_Descriptor *Descriptor, unsigned long sampleRate)
+LADSPA_Handle instantiateCrusher(const LADSPA_Descriptor *Descriptor, unsigned long sampleRate)
 {
-    return malloc(sizeof(Quantizer));
+    return malloc(sizeof(Crusher));
 }
 
 // This is a trivial port connection function.
-void connectPortToQuantizer(LADSPA_Handle instance, unsigned long port, LADSPA_Data *DataLocation)
+void connectPortToCrusher(LADSPA_Handle instance, unsigned long port, LADSPA_Data *DataLocation)
 {
-    Quantizer *q_instance = (Quantizer *) instance;
+    Crusher *c_instance = (Crusher *) instance;
 
     switch(port)
     {
-        case Q_FACTOR:
-            q_instance->quantizationFactor = DataLocation;
+        case C_FACTOR:
+            c_instance->reductionFactor = DataLocation;
             break;
-        case Q_INPUT:
-            q_instance->inputPort = DataLocation;
+        case C_INPUT:
+            c_instance->inputPort = DataLocation;
             break;
-        case Q_OUTPUT:
-            q_instance->outputPort = DataLocation;
+        case C_OUTPUT:
+            c_instance->outputPort = DataLocation;
             break;
     }
 }
+
+void setCrusherRunAddingGain(LADSPA_Handle instance, LADSPA_Data newGain)
+{
+    ((Quantizer *)instance)->runAddingGain = newGain;
+}
+
+/*---------- Quantizer ----------*/
 
 // Surprisingly, math.h doesn't define a signum function.  I had planned to use bitwise operations assuming the IEEE754 standard,
 // but discovered that this is fundamentally disallowed by the language.
@@ -108,8 +114,8 @@ void runQuantizer(LADSPA_Handle instance, unsigned long sampleCount)
     LADSPA_Data *input = q_instance->inputPort, *output = q_instance->outputPort;
 
     // Calculate the step size from the input value.
-    float stepSize = (*(q_instance->quantizationFactor) >= Q_FACTOR_LOWER && *(q_instance->quantizationFactor) <= Q_FACTOR_UPPER)
-                     ? *(q_instance->quantizationFactor) * FLOAT_STEP : Q_FACTOR_LOWER;
+    float stepSize = (*(q_instance->reductionFactor) >= Q_FACTOR_LOWER && *(q_instance->reductionFactor) <= Q_FACTOR_UPPER)
+                     ? *(q_instance->reductionFactor) * FLOAT_STEP : Q_FACTOR_LOWER;
     
     // Calculation intermediate storage.
     int exponentContainer;
@@ -130,11 +136,6 @@ void runQuantizer(LADSPA_Handle instance, unsigned long sampleCount)
 #undef buffer_write
 #define buffer_write(b, v) (b += (v) * runAddingGain)
 
-void setQuantizerRunAddingGain(LADSPA_Handle instance, LADSPA_Data newGain)
-{
-    ((Quantizer *)instance)->runAddingGain = newGain;
-}
-
 void runAddingQuantizer(LADSPA_Handle instance, unsigned long sampleCount)
 {
     Quantizer *q_instance = (Quantizer *) instance;
@@ -147,8 +148,8 @@ void runAddingQuantizer(LADSPA_Handle instance, unsigned long sampleCount)
     LADSPA_Data runAddingGain = q_instance->runAddingGain;
 
     // Calculate the step size from the input value.
-    float stepSize = (*(q_instance->quantizationFactor) >= Q_FACTOR_LOWER && *(q_instance->quantizationFactor) <= Q_FACTOR_UPPER)
-                     ? *(q_instance->quantizationFactor) * FLOAT_STEP : Q_FACTOR_LOWER;
+    float stepSize = (*(q_instance->reductionFactor) >= Q_FACTOR_LOWER && *(q_instance->reductionFactor) <= Q_FACTOR_UPPER)
+                     ? *(q_instance->reductionFactor) * FLOAT_STEP : Q_FACTOR_LOWER;
     
     // Calculation intermediate storage.
     int exponentContainer;
@@ -163,46 +164,7 @@ void runAddingQuantizer(LADSPA_Handle instance, unsigned long sampleCount)
     }
 }
 
-// The downsampler plugin:
-
-typedef struct {
-    // Ports:
-    LADSPA_Data *reductionFactor;
-    LADSPA_Data *inputPort;
-    LADSPA_Data *outputPort;
-
-    // Run_Adding gain:
-    LADSPA_Data runAddingGain;
-
-    // Sample rate:
-    unsigned long sampleRate;
-} Downsampler;
-
-LADSPA_Handle instantiateDownsampler(const LADSPA_Descriptor *descriptor, unsigned long rate)
-{
-    Downsampler *instance = malloc(sizeof(Downsampler));
-    instance->sampleRate = rate;
-    return instance;
-}
-
-// This is a trivial port connection function.  
-void connectPortToDownsampler(LADSPA_Handle instance, unsigned long port, LADSPA_Data *DataLocation)
-{
-    Downsampler *d_instance = (Downsampler *) instance;
-
-    switch(port)
-    {
-        case D_FACTOR:
-            d_instance->reductionFactor = DataLocation;
-            break;
-        case D_INPUT:
-            d_instance->inputPort = DataLocation;
-            break;
-        case D_OUTPUT:
-            d_instance->outputPort = DataLocation;
-            break;
-    }
-}
+/*---------- Downsampler ------------*/
 
 #undef buffer_write
 #define buffer_write(b, v) (b = v)
@@ -249,12 +211,50 @@ void runDownsampler(LADSPA_Handle instance, unsigned long sampleCount)
     }
 }
 
+#undef buffer_write
+#define buffer_write(b, v) (b += (v) * runAddingGain)
+
+void runAddingDownsampler(LADSPA_Handle instance, unsigned long sampleCount)
+{
+    Downsampler *d_instance = (Downsampler *) instance;
+
+    // Get the input and output ports.  The convention in all plugins I've read seems to be to assign these to local variables, instead of 
+    // accessing the instance struct members each time.
+    LADSPA_Data *input = d_instance->inputPort, *output = d_instance->outputPort;
+    LADSPA_Data runAddingGain = d_instance->runAddingGain;
+
+    // Get the downsampling factor as an integer.
+    unsigned long reductionFactor = *(d_instance->reductionFactor) <= sampleCount ? *(d_instance->reductionFactor) : sampleCount, i;
+
+    LADSPA_Data average;
+
+    while(sampleCount > reductionFactor)
+    {
+        mean(input, reductionFactor, &average);
+        for(i = 0; i < reductionFactor; i++)
+        {
+            buffer_write(output[i], average);
+        }
+
+        input += reductionFactor;
+        output += reductionFactor;
+        sampleCount -= reductionFactor;
+    }
+    mean(input, sampleCount, &average);
+    for(i = 0; i < sampleCount; i++)
+    {
+        buffer_write(output[i], average);
+    }
+}
+
+/*--------- Library overhead follows. ----------*/
+
 void cleanupPlugin(LADSPA_Handle instance)
 {
     free(instance);
 }
 
-// This global variable holds the unique plugin descriptor that is returned to any hosts requesting the descriptor information from the
+// These global variables holds the unique plugin descriptor that is returned to any hosts requesting the descriptor information from the
 // ladspa_descriptor function provided below (instead of constructing an arbitrary number of identical descriptors, one for each request).
 LADSPA_Descriptor *g_qDescriptor;
 LADSPA_Descriptor *g_dDescriptor;
@@ -267,6 +267,8 @@ void _init()
                                             // corresponding to one port.
     LADSPA_PortRangeHint *portRangeHints; // This is an array of LADSPA_PortRangeHint structs - again, one for each port.
 
+    // Because the descriptors are very similar I could probably have implemented some sort of shared initialization function, but the 
+    // clarity trade-off is in no way worth the utterly trivial gain.
     g_qDescriptor = malloc(sizeof(LADSPA_Descriptor)); // Allocate the quantizer descriptor struct.
     if(g_qDescriptor)
     {
@@ -282,31 +284,31 @@ void _init()
         g_qDescriptor->PortCount = 3; // One control, one input, one output.
         
         portDescriptors = malloc(g_qDescriptor->PortCount * sizeof(LADSPA_PortDescriptor));
-        portDescriptors[Q_FACTOR] = LADSPA_PORT_INPUT | LADSPA_PORT_CONTROL;
-        portDescriptors[Q_INPUT] = LADSPA_PORT_INPUT | LADSPA_PORT_AUDIO;
-        portDescriptors[Q_OUTPUT] = LADSPA_PORT_OUTPUT | LADSPA_PORT_AUDIO;
+        portDescriptors[C_FACTOR] = LADSPA_PORT_INPUT | LADSPA_PORT_CONTROL;
+        portDescriptors[C_INPUT] = LADSPA_PORT_INPUT | LADSPA_PORT_AUDIO;
+        portDescriptors[C_OUTPUT] = LADSPA_PORT_OUTPUT | LADSPA_PORT_AUDIO;
         g_qDescriptor->PortDescriptors = portDescriptors;
 
         portNames = malloc(g_qDescriptor->PortCount * sizeof(char *));
-        portNames[Q_FACTOR] = strdup("Quantization Factor");
-        portNames[Q_INPUT] = strdup("Input");
-        portNames[Q_OUTPUT] = strdup("Output");
+        portNames[C_FACTOR] = strdup("Quantization Factor");
+        portNames[C_INPUT] = strdup("Input");
+        portNames[C_OUTPUT] = strdup("Output");
         g_qDescriptor->PortNames = (const char **)portNames;
 
         portRangeHints = malloc(g_qDescriptor->PortCount * sizeof(LADSPA_PortRangeHint));
-        portRangeHints[Q_FACTOR].HintDescriptor = LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE | LADSPA_HINT_DEFAULT_MINIMUM
+        portRangeHints[C_FACTOR].HintDescriptor = LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE | LADSPA_HINT_DEFAULT_MINIMUM
                                                                             | LADSPA_HINT_LOGARITHMIC;
-        portRangeHints[Q_FACTOR].LowerBound = Q_FACTOR_LOWER;
-        portRangeHints[Q_FACTOR].UpperBound = Q_FACTOR_UPPER;
-        portRangeHints[Q_INPUT].HintDescriptor = 0;
-        portRangeHints[Q_OUTPUT].HintDescriptor = 0;
+        portRangeHints[C_FACTOR].LowerBound = Q_FACTOR_LOWER;
+        portRangeHints[C_FACTOR].UpperBound = Q_FACTOR_UPPER;
+        portRangeHints[C_INPUT].HintDescriptor = 0;
+        portRangeHints[C_OUTPUT].HintDescriptor = 0;
         g_qDescriptor->PortRangeHints = portRangeHints;
-        g_qDescriptor->instantiate = instantiateQuantizer;
-        g_qDescriptor->connect_port = connectPortToQuantizer;
+        g_qDescriptor->instantiate = instantiateCrusher;
+        g_qDescriptor->connect_port = connectPortToCrusher;
         g_qDescriptor->activate = NULL;
         g_qDescriptor->run = runQuantizer;
         g_qDescriptor->run_adding = runAddingQuantizer;
-        g_qDescriptor->set_run_adding_gain = setQuantizerRunAddingGain;
+        g_qDescriptor->set_run_adding_gain = setCrusherRunAddingGain;
         g_qDescriptor->deactivate = NULL;
         g_qDescriptor->cleanup = cleanupPlugin;
     }
@@ -325,31 +327,30 @@ void _init()
         g_dDescriptor->PortCount = 3; // One control, one input, one output.
         
         portDescriptors = malloc(g_dDescriptor->PortCount * sizeof(LADSPA_PortDescriptor));
-        portDescriptors[D_FACTOR] = LADSPA_PORT_INPUT | LADSPA_PORT_CONTROL;
-        portDescriptors[D_INPUT] = LADSPA_PORT_INPUT | LADSPA_PORT_AUDIO;
-        portDescriptors[D_OUTPUT] = LADSPA_PORT_OUTPUT | LADSPA_PORT_AUDIO;
+        portDescriptors[C_FACTOR] = LADSPA_PORT_INPUT | LADSPA_PORT_CONTROL;
+        portDescriptors[C_INPUT] = LADSPA_PORT_INPUT | LADSPA_PORT_AUDIO;
+        portDescriptors[C_OUTPUT] = LADSPA_PORT_OUTPUT | LADSPA_PORT_AUDIO;
         g_dDescriptor->PortDescriptors = portDescriptors;
 
         portNames = malloc(g_dDescriptor->PortCount * sizeof(char *));
-        portNames[D_FACTOR] = strdup("Rate Reduction Factor");
-        portNames[D_INPUT] = strdup("Input");
-        portNames[D_OUTPUT] = strdup("Output");
+        portNames[C_FACTOR] = strdup("Rate Reduction Factor");
+        portNames[C_INPUT] = strdup("Input");
+        portNames[C_OUTPUT] = strdup("Output");
         g_dDescriptor->PortNames = (const char **)portNames;
 
         portRangeHints = malloc(g_dDescriptor->PortCount * sizeof(LADSPA_PortRangeHint));
-        portRangeHints[D_FACTOR].HintDescriptor = LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE | LADSPA_HINT_DEFAULT_MINIMUM
-                                                | LADSPA_HINT_INTEGER;
-        portRangeHints[D_FACTOR].LowerBound = D_FACTOR_LOWER;
-        portRangeHints[D_FACTOR].UpperBound = D_FACTOR_UPPER;
-        portRangeHints[D_INPUT].HintDescriptor = 0;
-        portRangeHints[D_OUTPUT].HintDescriptor = 0;
+        portRangeHints[C_FACTOR].HintDescriptor = LADSPA_HINT_BOUNDED_BELOW | LADSPA_HINT_BOUNDED_ABOVE | LADSPA_HINT_DEFAULT_MINIMUM;
+        portRangeHints[C_FACTOR].LowerBound = D_FACTOR_LOWER;
+        portRangeHints[C_FACTOR].UpperBound = D_FACTOR_UPPER;
+        portRangeHints[C_INPUT].HintDescriptor = 0;
+        portRangeHints[C_OUTPUT].HintDescriptor = 0;
         g_dDescriptor->PortRangeHints = portRangeHints;
-        g_dDescriptor->instantiate = instantiateDownsampler;
-        g_dDescriptor->connect_port = connectPortToDownsampler;
+        g_dDescriptor->instantiate = instantiateCrusher;
+        g_dDescriptor->connect_port = connectPortToCrusher;
         g_dDescriptor->activate = NULL;
         g_dDescriptor->run = runDownsampler;
-        g_dDescriptor->run_adding = NULL;
-        g_dDescriptor->set_run_adding_gain = NULL;
+        g_dDescriptor->run_adding = runAddingDownsampler;
+        g_dDescriptor->set_run_adding_gain = setCrusherRunAddingGain;
         g_dDescriptor->deactivate = NULL;
         g_dDescriptor->cleanup = cleanupPlugin;
 
