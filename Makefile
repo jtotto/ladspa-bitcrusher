@@ -8,17 +8,17 @@ LD=ld
 LDFLAGS=-shared
 INSTALL=/usr/lib/ladspa/
 
-all: quantizer
+all: bitcrusher
 
-quantizer: quantizer.o
-	$(LD) $(LDFLAGS) -o quantizer_1337.so quantizer.o
+bitcrusher: bitcrusher.o
+	$(LD) $(LDFLAGS) -o bitcrusher.so bitcrusher.o
 
-quantizer.o: quantizer.c
-	$(CC) $(CFLAGS) -o quantizer.o quantizer.c
+bitcrusher.o: bitcrusher.c
+	$(CC) $(CFLAGS) -o bitcrusher.o bitcrusher.c
 
 cleanup:
-	rm quantizer.o
+	rm bitcrusher.o
 
 install: all
-	mv quantizer_1337.so $(INSTALL)
-	rm quantizer.o
+	mv bitcrusher.so $(INSTALL)
+	rm bitcrusher.o
