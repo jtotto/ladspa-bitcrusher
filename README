@@ -1,20 +1,23 @@
-NOTE:  I have NOT requested the uuids the plugins are currently using from the central uuid
--issuing authority.  I wrote this as a learning experience and don't want to clutter up
-the I.D. space.  If you're using it, just use the tools provided by the LADSPA SDK to 
-make sure that you don't have whichever plugin has the same id installed, or you'll have
-a conflict.
+NOTE:  I have NOT requested the uuids the plugins are currently using from the
+central uuid -issuing authority.  I wrote this as a learning experience and
+don't want to clutter up the I.D. space.  If you're using it, just use the tools
+provided by the LADSPA SDK to  make sure that you don't have whichever plugin
+has the same id installed, or you'll have a conflict. 
 
 -------
 
-This is a very, VERY basic implementation of quantization distortion as a LADSPA plugin.
-It now also features a downsampler!  This is the other traditional capability of a bitcrusher.
-When writing it I referred heavily to the example plugins provided by the LADSPA SDK, 
-as well as to some of the excellent plugins from http://plugin.org.uk/.  
+This is a very, VERY basic implementation of quantization distortion as a LADSPA
+plugin. It now also features a downsampler!  This is the other traditional
+capability of a bitcrusher. When writing it I referred heavily to the example
+plugins provided by the LADSPA SDK,  as well as to some of the excellent plugins
+from http://plugin.org.uk/.   
 
-To build, you need only have ladspa.h available. (the LADSPA SDK may be helpful, but isn't necessary)
+To build, you need only have ladspa.h available. (the LADSPA SDK may be helpful,
+but isn't necessary)
 
-I wrote the makefile by hand; it's not very sophisticated.  Basically, make sure that the build
-steps outlined by http://gdam.ffem.org/ladspa-doc/ladspa-3.html section 3.5 are followed and 
-that the resulting shared library ends up wherever your plugin host will be looking for it.
+I wrote the makefile by hand; it's not very sophisticated.  Basically, make sure
+that the build steps outlined by http://gdam.ffem.org/ladspa-doc/ladspa-3.html
+section 3.5 are followed and  that the resulting shared library ends up wherever
+your plugin host will be looking for it. 
 
 Should be as simple as make, make install.
